@@ -88,7 +88,7 @@ def login():
 
 # Ruta para obtener todos los productos (protegida)
 @app.route("/productos", methods=["GET"])
-@token_required
+#@token_required
 def get_productos():
     try:
         cur = mysql.connection.cursor()
@@ -211,7 +211,7 @@ def delete_producto(product_id):
 
 # --- Ruta para obtener un producto por ID (protegida, adicional) ---
 @app.route("/productos/<int:product_id>", methods=["GET"])
-@token_required
+#@token_required
 def get_producto_by_id(product_id):
     try:
         cur = mysql.connection.cursor()

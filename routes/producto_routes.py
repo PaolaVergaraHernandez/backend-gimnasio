@@ -13,10 +13,10 @@ from handlers.producto_handlers import (
 from .auth_middleware import token_required
 
 productos_bp = Blueprint('productos', __name__, url_prefix='/api/productos')
-
+#rutas publlicas 
 
 @productos_bp.route("/", methods=["GET"])
-@token_required # <--- Aplica el decorador aquí para PROTEGER esta ruta
+#@token_required # <--- Aplica el decorador aquí para PROTEGER esta ruta
 def get_todos_productos():
     """Endpoint para obtener todos los productos."""
     # Opcional: print(f"Usuario {request.user_email} (UID: {request.user_id}) solicitó todos los productos.")
@@ -26,7 +26,7 @@ def get_todos_productos():
     return jsonify(resultado), 200
 
 @productos_bp.route("/<int:id_producto>", methods=["GET"])
-@token_required # <--- Aplica el decorador aquí para PROTEGER esta ruta
+#@token_required # <--- Aplica el decorador aquí para PROTEGER esta ruta
 def get_producto_por_id(id_producto):
     """Endpoint para obtener un producto por su ID."""
     # Opcional: print(f"Usuario {request.user_email} (UID: {request.user_id}) solicitó producto ID: {id_producto}.")
