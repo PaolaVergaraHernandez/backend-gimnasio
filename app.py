@@ -3,36 +3,59 @@
 import os
 from flask import Flask, request, jsonify, g
 from flask_cors import CORS
-from firebase_admin import credentials, auth, initialize_app # <-- Importaciones de Firebase
+from firebase_admin import credentials, auth, initialize_app
 from functools import wraps
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import text
+import json # ¡IMPORTANTE! Necesario para trabajar con JSON
 
 
 # Importar de database.py
-from database import get_db, create_all_tables, Product
+from database import get_db, create_all_tables, Product # Asegúrate de que Product esté definido en database.py
+
 
 # --- Configuración de Flask ---
 app = Flask(__name__)
-# CORS: Permite solicitudes desde el frontend de desarrollo (localhost:4200)
-# y desde tu frontend desplegado en Firebase Hosting (si llegas a usarlo).
-# Para depuración, CORS(app) es muy permisivo por defecto. Para producción, usa origins específicos.
-CORS(app, resources={r"/*": {"origins": ["http://localhost:4200", "https://gimnasio-bd67b.web.app"]}})
+# CORS: Asegúrate de que las URLs de origen sean correctas.
+# "http://localhost:4200" para desarrollo local de Angular.
+# "https://reactives.netlify.app" para tu frontend desplegado en Netlify.
+CORS(app, resources={r"/*": {"origins": ["http://localhost:4200", "https://reactives.netlify.app"]}})
 
-# --- Inicialización de Firebase Admin SDK ---
+# --- Inicialización de Firebase Admin SDK con Variables de Entorno y Fallback Local ---
+firebase_initialized = False # Bandera para verificar si Firebase se ha inicializado con éxito
+
 try:
-    # Asegúrate de que 'firebase_credentials.json' esté en la misma carpeta que app.py
-    # Si no tienes este archivo, descárgalo de Firebase Console > Project settings > Service accounts
-    # Y guárdalo como firebase_credentials.json en la carpeta de tu backend.
-    cred = credentials.Certificate('firebase_credentials.json')
-    initialize_app(cred)
-    print("Firebase Admin SDK inicializado exitosamente.")
+    # 1. Intenta leer el contenido JSON de las credenciales de Firebase desde una variable de entorno
+    #    (Esto es para entornos de despliegue como Glitch, donde configurarás FIREBASE_CREDENTIALS_JSON).
+    firebase_credentials_json_str = os.getenv("FIREBASE_CREDENTIALS_JSON")
+
+    if firebase_credentials_json_str:
+        # Si la variable de entorno está configurada, carga el JSON y úsalo
+        cred_dict = json.loads(firebase_credentials_json_str)
+        cred = credentials.Certificate(cred_dict)
+        initialize_app(cred)
+        firebase_initialized = True
+        print("Firebase Admin SDK inicializado exitosamente desde variables de entorno.")
+    elif app.debug and os.path.exists('firebase_credentials.json'):
+        # 2. Si la variable de entorno NO está configurada, PERO estamos en modo debug Y
+        #    el archivo 'firebase_credentials.json' existe localmente, úsalo.
+        #    (Esto es para facilitar el desarrollo local sin necesidad de variables de entorno).
+        cred = credentials.Certificate('firebase_credentials.json')
+        initialize_app(cred)
+        firebase_initialized = True
+        print("Firebase Admin SDK inicializado exitosamente desde archivo local (modo debug).")
+    else:
+        # 3. Si no se encuentra en ninguno de los dos casos, Firebase no se inicializará.
+        print("Advertencia: No se encontraron credenciales para Firebase Admin SDK.")
+        print("Firebase Admin SDK no se inicializará. Las funciones de autenticación de Firebase fallarán.")
+        print("Asegúrate de configurar 'FIREBASE_CREDENTIALS_JSON' en tu entorno de despliegue (Glitch) o")
+        print("de tener 'firebase_credentials.json' en la raíz de tu proyecto para desarrollo local (con debug=True).")
+
 except Exception as e:
-    print(f"Error al inicializar Firebase Admin SDK: {e}")
-    print("Asegúrate de tener el archivo 'firebase_credentials.json' correcto.")
-    # Si Firebase Admin SDK no se inicializa, las funciones de autenticación fallarán.
-    # Considera si la aplicación debe continuar sin esto.
+    print(f"ERROR al inicializar Firebase Admin SDK: {e}")
+    print("Asegúrate de que 'FIREBASE_CREDENTIALS_JSON' esté bien formado (JSON válido) en las variables de entorno,")
+    print("o que el archivo 'firebase_credentials.json' no esté corrupto en desarrollo local.")
 
 
 # --- Middleware para manejar la sesión de DB por cada solicitud ---
@@ -53,11 +76,17 @@ def after_request(response):
 def token_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
+        # Asegúrate de que Firebase se haya inicializado antes de intentar verificar el token
+        if not firebase_initialized:
+            print("DEBUG: Intento de usar token_required sin Firebase inicializado. Respondiendo 503.")
+            return jsonify({'message': 'Servicio de autenticación no disponible'}), 503
+
         if 'Authorization' not in request.headers:
             return jsonify({'message': 'Token de autorización es requerido'}), 401
 
         token = request.headers['Authorization'].split(' ')[1]
         try:
+            # Verifica el token de Firebase usando Firebase Admin SDK
             decoded_token = auth.verify_id_token(token)
             request.user_id = decoded_token['uid']
             request.user_email = decoded_token.get('email')
@@ -69,6 +98,11 @@ def token_required(f):
 
 # --- Rutas (Endpoints) ---
 
+# Ruta de Home (bienvenida)
+@app.route("/")
+def home():
+    return "¡Bienvenido a la API del gimnasio!"
+
 # Ruta de Login
 @app.route("/login", methods=["POST", "OPTIONS"])
 def login():
@@ -78,10 +112,17 @@ def login():
     if request.method == 'OPTIONS':
         print("DEBUG: Manejando solicitud OPTIONS (preflight CORS).")
         response = jsonify({"message": "CORS preflight OK"})
+        # Las cabeceras CORS son gestionadas por Flask-CORS configurado arriba,
+        # pero es bueno asegurarse para las preflight.
         response.headers.add("Access-Control-Allow-Origin", request.headers.get('Origin', '*'))
         response.headers.add("Access-Control-Allow-Headers", "Content-Type,Authorization")
         response.headers.add("Access-Control-Allow-Methods", "POST")
         return response
+
+    # Asegúrate de que Firebase se haya inicializado antes de intentar el login
+    if not firebase_initialized:
+        print("DEBUG: Intento de login sin Firebase inicializado. Respondiendo 503.")
+        return jsonify({'message': 'Servicio de autenticación no disponible'}), 503
 
     if request.method == 'POST':
         print("DEBUG: Manejando solicitud POST.")
@@ -122,11 +163,12 @@ def login():
         return jsonify({"error": "Método no permitido"}), 405
 
 
-# --- Rutas CRUD de Productos (¡Ahora usando SQLAlchemy!) ---
+# --- Rutas CRUD de Productos (Usando SQLAlchemy) ---
+# NOTA: Las rutas de productos tienen el decorador @token_required comentado por ahora para depuración.
+# Descomenta @token_required en producción para protegerlas una vez que la autenticación funcione.
 
-# Ruta para obtener todos los productos
 @app.route("/productos", methods=["GET"])
-#@token_required # <-- Descomentar para proteger la ruta en producción
+#@token_required
 def get_productos():
     try:
         db: Session = g.db
@@ -139,9 +181,8 @@ def get_productos():
         print(f"ERROR: Error inesperado al obtener productos: {e}")
         return jsonify({"error": "Error inesperado al cargar productos"}), 500
 
-# Ruta para añadir un nuevo producto
 @app.route("/productos", methods=["POST"])
-#@token_required # <-- Descomentar para proteger la ruta en producción
+#@token_required
 def add_producto():
     data = request.get_json()
     if not data:
@@ -181,9 +222,8 @@ def add_producto():
         print(f"ERROR: Error inesperado al añadir producto: {e}")
         return jsonify({"error": "Error inesperado al añadir producto"}), 500
 
-# Ruta para actualizar un producto existente
 @app.route("/productos/<int:product_id>", methods=["PUT"])
-#@token_required # <-- Descomentar para proteger la ruta en producción
+#@token_required
 def update_producto(product_id):
     data = request.get_json()
     if not data:
@@ -212,9 +252,8 @@ def update_producto(product_id):
         print(f"ERROR: Error inesperado al actualizar producto: {e}")
         return jsonify({"error": "Error inesperado al actualizar producto"}), 500
 
-# Ruta para eliminar un producto
 @app.route("/productos/<int:product_id>", methods=["DELETE"])
-#@token_required # <-- Descomentar para proteger la ruta en producción
+#@token_required
 def delete_producto(product_id):
     try:
         db: Session = g.db
@@ -235,9 +274,8 @@ def delete_producto(product_id):
         print(f"ERROR: Error inesperado al eliminar producto: {e}")
         return jsonify({"error": "Error inesperado al eliminar producto"}), 500
 
-# Ruta para obtener un producto por ID
 @app.route("/productos/<int:product_id>", methods=["GET"])
-#@token_required # <-- Descomentar para proteger la ruta en producción
+#@token_required
 def get_producto_by_id(product_id):
     try:
         db: Session = g.db
@@ -255,11 +293,7 @@ def get_producto_by_id(product_id):
 
 # --- Ejecutar la aplicación ---
 if __name__ == "__main__":
-    # Llama a esta función para asegurar que las tablas de SQLAlchemy existan
-    # (basado en el modelo Product).
-    # Esta función intentará crear la tabla 'productos' si no existe.
-    create_all_tables()
-    # Asegúrate de que el puerto 5000 esté libre o cámbialo.
-    # debug=True es bueno para desarrollo, pero desactívalo en producción.
-    app.run(debug=True, port=5000)
-
+    create_all_tables() # Llama a esta función para asegurar que las tablas de SQLAlchemy existan
+    # En Glitch, el puerto es proporcionado por la variable de entorno PORT.
+    # En desarrollo local, por defecto usa 5000.
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
