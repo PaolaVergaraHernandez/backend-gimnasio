@@ -1,6 +1,6 @@
-Flask==2.3.2 # O la versión que estés usando
-SQLAlchemy==2.0.19 # O la versión que estés usando
-pymysql==1.1.0 # Driver MySQL para SQLAlchemy. Asegúrate de que este driver sea el que uses.
-gunicorn==21.2.0 # Servidor WSGI para producción
-firebase-admin==6.4.0 # O la versión que estés usando
-Flask-Cors==4.0.0 # ¡AÑADE ESTA LÍNEA! O la versión que estés usando.
+Flask==2.3.2 
+SQLAlchemy==2.0.19 
+pymysql==1.1.0 
+gunicorn==21.2.0 
+firebase-admin==6.4.0 
+Flask-Cors==4.0.0 
