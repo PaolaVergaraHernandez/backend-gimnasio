@@ -27,11 +27,10 @@ firebase_initialized = False # Bandera para verificar si Firebase se ha iniciali
 
 try:
     # 1. Intenta leer el contenido JSON de las credenciales de Firebase desde una variable de entorno
-    #    (Esto es para entornos de despliegue como Glitch, donde configurarás FIREBASE_CREDENTIALS_JSON).
+    #    (Esto es para entornos de despliegue como Render, donde configurarás FIREBASE_CREDENTIALS_JSON).
     firebase_credentials_json_str = os.getenv("FIREBASE_CREDENTIALS_JSON")
 
     if firebase_credentials_json_str:
-        # Si la variable de entorno está configurada, carga el JSON y úsalo
         cred_dict = json.loads(firebase_credentials_json_str)
         cred = credentials.Certificate(cred_dict)
         initialize_app(cred)
@@ -49,7 +48,7 @@ try:
         # 3. Si no se encuentra en ninguno de los dos casos, Firebase no se inicializará.
         print("Advertencia: No se encontraron credenciales para Firebase Admin SDK.")
         print("Firebase Admin SDK no se inicializará. Las funciones de autenticación de Firebase fallarán.")
-        print("Asegúrate de configurar 'FIREBASE_CREDENTIALS_JSON' en tu entorno de despliegue (Glitch) o")
+        print("Asegúrate de configurar 'FIREBASE_CREDENTIALS_JSON' en tu entorno de despliegue (Render) o")
         print("de tener 'firebase_credentials.json' en la raíz de tu proyecto para desarrollo local (con debug=True).")
 
 except Exception as e:
@@ -294,6 +293,6 @@ def get_producto_by_id(product_id):
 # --- Ejecutar la aplicación ---
 if __name__ == "__main__":
     create_all_tables() # Llama a esta función para asegurar que las tablas de SQLAlchemy existan
-    # En Glitch, el puerto es proporcionado por la variable de entorno PORT.
-    # En desarrollo local, por defecto usa 5000.
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=True)
+    # En Render, el puerto es proporcionado por la variable de entorno PORT.
+    # En desarrollo local, por defecto usa 10000 (puerto común para Render).
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 10000)), debug=True)
